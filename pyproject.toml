@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-subtitle-translator"
+version = "0.1.0"
+description = "Translate video subtitles and game subtitles with your own LLM API."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "faster-whisper>=1.1.1",
+    "httpx>=0.27.0",
+    "mss>=9.0.1",
+    "Pillow>=10.3.0",
+    "python-dotenv>=1.0.1",
+    "rapidocr-onnxruntime>=1.3.24",
+]
+
+[project.scripts]
+ai-subtitle = "ai_subtitle.cli:main"
+
+[project.gui-scripts]
+ai-subtitle-gui = "ai_subtitle.gui:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
