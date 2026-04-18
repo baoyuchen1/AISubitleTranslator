@@ -44,7 +44,7 @@ def transcribe_media_to_srt(
         raise FileNotFoundError(f"Input media file not found: {source_path}")
 
     active_device = device
-    active_compute_type = compute_type
+    active_compute_type = _normalize_compute_type(device, compute_type, emit_status)
 
     try:
         emit_status(
@@ -68,9 +68,27 @@ def transcribe_media_to_srt(
             "CUDA runtime is unavailable on this machine. Falling back to CPU transcription."
         )
         active_device = "cpu"
-        active_compute_type = "int8"
+        active_compute_type = _normalize_compute_type(active_device, compute_type, emit_status)
         model = WhisperModel(model_size, device=active_device, compute_type=active_compute_type)
         emit_status("CPU Whisper model ready. Restarting transcription...")
+        segments, info = model.transcribe(
+            str(source_path),
+            language=None if not language or language.lower() == "auto" else language,
+            task="transcribe",
+            beam_size=beam_size,
+            vad_filter=vad_filter,
+            condition_on_previous_text=True,
+        )
+    except ValueError as exc:
+        if not _should_fallback_compute_type(active_device, active_compute_type, exc):
+            raise
+
+        emit_status(
+            f"Compute type {active_compute_type} is not supported on {active_device}. Falling back to int8."
+        )
+        active_compute_type = "int8"
+        model = WhisperModel(model_size, device=active_device, compute_type=active_compute_type)
+        emit_status("Fallback Whisper model ready. Restarting transcription...")
         segments, info = model.transcribe(
             str(source_path),
             language=None if not language or language.lower() == "auto" else language,
@@ -142,3 +160,26 @@ def _should_fallback_to_cpu(device: str, exc: RuntimeError) -> bool:
         "not found",
     )
     return any(marker in message for marker in markers)
+
+
+def _should_fallback_compute_type(device: str, compute_type: str, exc: ValueError) -> bool:
+    message = str(exc).lower()
+    if "compute type" not in message:
+        return False
+    if device not in ("cpu", "auto", "cuda"):
+        return False
+    return compute_type != "int8"
+
+
+def _normalize_compute_type(
+    device: str,
+    compute_type: str,
+    emit_status: Callable[[str], None],
+) -> str:
+    normalized = (compute_type or "int8").strip().lower()
+    if device == "cpu" and normalized in ("int8_float16", "float16"):
+        emit_status(
+            f"Compute type {normalized} is not suitable for CPU. Using int8 instead."
+        )
+        return "int8"
+    return normalized or "int8"
