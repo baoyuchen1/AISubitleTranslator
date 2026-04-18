@@ -9,12 +9,14 @@ project_dir = Path.cwd()
 src_dir = project_dir / "src"
 
 hiddenimports = []
+hiddenimports += collect_submodules("av")
 hiddenimports += collect_submodules("faster_whisper")
 hiddenimports += collect_submodules("rapidocr_onnxruntime")
 hiddenimports += collect_submodules("PIL")
 hiddenimports += collect_submodules("tokenizers")
 
 binaries = []
+binaries += collect_dynamic_libs("av")
 binaries += collect_dynamic_libs("ctranslate2")
 datas = []
 datas += collect_data_files("faster_whisper")

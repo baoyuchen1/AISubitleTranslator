@@ -6,7 +6,7 @@ import sys
 from ai_subtitle.config import load_config
 from ai_subtitle.game_ocr import GameOCRTranslator, ScreenRegion
 from ai_subtitle.providers.openai_compatible import OpenAICompatibleProvider
-from ai_subtitle.transcribe import transcribe_media_to_srt
+from ai_subtitle.transcribe import resolve_transcription_settings, transcribe_media_to_srt
 from ai_subtitle.video_pipeline import translate_srt
 
 
@@ -50,6 +50,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--model-size",
         default="small",
         help="Whisper model size, for example tiny, base, small, medium, or large-v3.",
+    )
+    transcribe_parser.add_argument(
+        "--profile",
+        default="balanced",
+        help="Recognition profile: balanced, high_quality, or noisy_scene.",
     )
     transcribe_parser.add_argument(
         "--language",
@@ -137,15 +142,20 @@ def main() -> int:
             return 0
 
         if args.command == "transcribe-video":
+            settings = resolve_transcription_settings(
+                model_size=args.model_size,
+                profile=args.profile,
+            )
             result = transcribe_media_to_srt(
                 args.input,
                 args.output,
-                model_size=args.model_size,
+                model_size=settings.model_size,
                 language=args.language,
                 device=args.device,
                 compute_type=args.compute_type,
-                beam_size=args.beam_size,
-                vad_filter=not args.no_vad_filter,
+                beam_size=settings.beam_size if args.beam_size == 5 else args.beam_size,
+                vad_filter=settings.vad_filter if not args.no_vad_filter else False,
+                preprocess_audio=settings.preprocess_audio,
             )
             print(
                 "Transcribed subtitle written to: "

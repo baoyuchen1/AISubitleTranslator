@@ -9,6 +9,8 @@ A Windows-focused desktop tool for:
 ## Features
 
 - Local video/audio transcription with `faster-whisper`
+- Recognition profiles for balanced, higher quality, or noisy scenes
+- Optional local audio cleanup before transcription for crowded or messy audio
 - OpenAI-compatible subtitle translation API
 - Real-time OCR translation overlay for games
 - GUI workflow for daily use
@@ -65,8 +67,15 @@ Or just use:
 
 - Choose a media file
 - Choose an output `.srt`
+- Select a recognition profile
 - Select a Whisper model
 - Click `Generate Subtitle From Video`
+
+Recognition profiles:
+
+- `Balanced`: default settings for normal videos
+- `High Quality`: upgrades smaller models to at least `medium` and uses a stronger decode pass
+- `Noisy Scene`: uses the stronger decode pass and runs local audio cleanup before Whisper
 
 ### 2. Translate Existing Subtitle
 
@@ -90,11 +99,17 @@ Typical tradeoff:
 - `medium`: higher quality, slower
 - `large-v3`: strongest quality, highest resource usage
 
+For crowded scenes, overlapping speech, or noisy game/video audio, prefer:
+
+- `High Quality` when the audio itself is fairly clean
+- `Noisy Scene` when background noise makes recognition unstable
+
 ## Packaging
 
 See:
 
 - [PACKAGING.md](./PACKAGING.md)
+- [CHANGELOG.md](./CHANGELOG.md)
 
 Quick command:
 
@@ -113,6 +128,7 @@ Sensitive local files are intentionally excluded:
 ## Limitations
 
 - First Whisper model load may download model files
+- Noisy multi-speaker scenes are improved, but not fully separated into individual speakers
 - OCR quality depends on subtitle position, font, and background clarity
 - This project currently focuses on Windows desktop usage
 

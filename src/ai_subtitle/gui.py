@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import random
 import traceback
 import threading
 import tkinter as tk
@@ -19,7 +20,7 @@ from ai_subtitle.config import (
 from ai_subtitle.game_ocr import GameOCRTranslator, ScreenRegion
 from ai_subtitle.overlay import OverlayWindow
 from ai_subtitle.providers.openai_compatible import OpenAICompatibleProvider
-from ai_subtitle.transcribe import transcribe_media_to_srt
+from ai_subtitle.transcribe import resolve_transcription_settings, transcribe_media_to_srt
 from ai_subtitle.video_pipeline import translate_srt
 
 
@@ -38,6 +39,20 @@ class PixelRiderAnimation:
         self._pixel = 6
         self._gap = 1
         self._running = False
+        self._cycle_index = 0
+        self._cycle_length = 160
+        self._scene_entities: list[dict[str, float | int | str]] = []
+        self._star_positions = (
+            (24, 18),
+            (58, 34),
+            (86, 20),
+            (132, 44),
+            (166, 24),
+            (244, 22),
+            (282, 38),
+            (316, 18),
+            (346, 40),
+        )
         self._draw_background()
         self._draw_running_frame(0)
 
@@ -52,10 +67,12 @@ class PixelRiderAnimation:
 
     def show_victory(self) -> None:
         self.stop()
+        self._draw_background()
         self._draw_victory_frame()
 
     def show_rest(self) -> None:
         self.stop()
+        self._draw_background()
         self._draw_running_frame(self._frame_index)
 
     def stop(self) -> None:
@@ -78,37 +95,51 @@ class PixelRiderAnimation:
         if not self._running:
             return
 
+        self._advance_scene()
+        self._draw_background()
         self._draw_running_frame(self._frame_index)
         self._frame_index = (self._frame_index + 1) % 4
         self._job = self.canvas.after(150, self._tick)
 
     def _draw_background(self) -> None:
         self.canvas.delete("background")
-        self.canvas.create_rectangle(0, 0, 396, 228, fill="#f5ead2", outline="", tags="background")
-        self.canvas.create_rectangle(0, 148, 396, 228, fill="#8aa85a", outline="", tags="background")
-        self.canvas.create_rectangle(0, 170, 396, 228, fill="#6f8c48", outline="", tags="background")
+        light = self._daylight_factor()
+        sky_top = self._lerp_color("#13233f", "#f5ead2", light)
+        sky_bottom = self._lerp_color("#2f4664", "#efd9aa", light)
+        hill = self._lerp_color("#43553b", "#8aa85a", light)
+        field = self._lerp_color("#30422f", "#6f8c48", light)
+        cloud = self._lerp_color("#7e8da6", "#e3cfae", light)
+        text_color = self._lerp_color("#f2e8d5", "#3f3128", light)
+
+        self.canvas.create_rectangle(0, 0, 396, 108, fill=sky_top, outline="", tags="background")
+        self.canvas.create_rectangle(0, 108, 396, 148, fill=sky_bottom, outline="", tags="background")
+        self.canvas.create_rectangle(0, 148, 396, 228, fill=hill, outline="", tags="background")
+        self.canvas.create_rectangle(0, 170, 396, 228, fill=field, outline="", tags="background")
+
+        self._draw_stars(light)
 
         for x, y in (
-            (34, 26),
-            (58, 42),
-            (96, 22),
-            (122, 50),
-            (156, 28),
-            (278, 32),
-            (304, 56),
-            (332, 24),
-            (354, 40),
+            (26, 30),
+            (58, 44),
+            (94, 24),
+            (126, 54),
+            (154, 30),
+            (274, 36),
+            (300, 58),
+            (330, 26),
+            (352, 44),
         ):
-            self._cell(x, y, "#e3cfae", "background")
-            self._cell(x + 8, y + 8, "#e3cfae", "background")
+            self._cell(x, y, cloud, "background")
+            self._cell(x + 8, y + 8, cloud, "background")
 
-        self.canvas.create_oval(308, 18, 352, 62, fill="#f3c86c", outline="", tags="background")
+        self._draw_celestial_body(light)
+        self._draw_background_entities(light)
         self.canvas.create_text(
             18,
             202,
             text="grassland loading",
             anchor="w",
-            fill="#3f3128",
+            fill=text_color,
             font=("Consolas", 10, "bold"),
             tags="background",
         )
@@ -223,6 +254,162 @@ class PixelRiderAnimation:
         for idx, (cx, cy) in enumerate(clouds):
             self._block(x + cx * 6, y + cy * 6, 2, 1, colors[idx % 2], "sprite")
 
+    def _advance_scene(self) -> None:
+        self._cycle_index = (self._cycle_index + 1) % self._cycle_length
+        next_entities: list[dict[str, float | int | str]] = []
+        for entity in self._scene_entities:
+            entity["x"] = float(entity["x"]) - float(entity["speed"])
+            if float(entity["x"]) > -96:
+                next_entities.append(entity)
+        self._scene_entities = next_entities
+
+        if len(self._scene_entities) >= 3:
+            return
+        if self._cycle_index % 18 != 0:
+            return
+        if random.random() > 0.55:
+            return
+
+        kind = random.choice(["ger", "sheep", "cattle", "horses"])
+        lane = random.choice([0, 1, 2])
+        speed = {0: 1.2, 1: 1.6, 2: 2.0}[lane]
+        spawn_x = 420 + random.randint(0, 70)
+        entity: dict[str, float | int | str] = {
+            "kind": kind,
+            "x": float(spawn_x),
+            "lane": lane,
+            "speed": speed,
+            "variant": random.randint(0, 2),
+        }
+        self._scene_entities.append(entity)
+
+    def _daylight_factor(self) -> float:
+        phase = self._cycle_index / self._cycle_length
+        if phase < 0.5:
+            return phase / 0.5
+        return (1.0 - phase) / 0.5
+
+    def _draw_stars(self, light: float) -> None:
+        if light > 0.45:
+            return
+        star_color = self._lerp_color("#b6c5df", "#fff3bf", 1.0 - (light / 0.45))
+        for x, y in self._star_positions:
+            self._cell(x, y, star_color, "background")
+            if (x + y + self._frame_index) % 3 == 0:
+                self._cell(x + 6, y + 6, star_color, "background")
+
+    def _draw_celestial_body(self, light: float) -> None:
+        phase = self._cycle_index / self._cycle_length
+        travel = phase if phase < 0.5 else phase - 0.5
+        travel *= 2.0
+
+        sun_x = 28 + int(312 * travel)
+        sun_y = 78 - int(44 * (1.0 - abs(0.5 - travel) * 2.0))
+        moon_x = 28 + int(312 * ((travel + 0.5) % 1.0))
+        moon_y = 82 - int(40 * (1.0 - abs(0.5 - ((travel + 0.5) % 1.0)) * 2.0))
+
+        if light >= 0.5:
+            self.canvas.create_oval(
+                sun_x,
+                sun_y,
+                sun_x + 44,
+                sun_y + 44,
+                fill="#f3c86c",
+                outline="",
+                tags="background",
+            )
+        else:
+            self.canvas.create_oval(
+                moon_x,
+                moon_y,
+                moon_x + 36,
+                moon_y + 36,
+                fill="#d7dfed",
+                outline="",
+                tags="background",
+            )
+            self.canvas.create_oval(
+                moon_x + 10,
+                moon_y + 4,
+                moon_x + 34,
+                moon_y + 30,
+                fill=self._lerp_color("#13233f", "#2f4664", light),
+                outline="",
+                tags="background",
+            )
+
+    def _draw_background_entities(self, light: float) -> None:
+        for entity in sorted(self._scene_entities, key=lambda item: int(item["lane"])):
+            lane = int(entity["lane"])
+            x = int(float(entity["x"]))
+            y = 112 + lane * 18
+            if entity["kind"] == "ger":
+                self._draw_ger(x, y, light)
+            elif entity["kind"] == "sheep":
+                self._draw_sheep_group(x, y, light, int(entity["variant"]))
+            elif entity["kind"] == "cattle":
+                self._draw_cattle_group(x, y, light, int(entity["variant"]))
+            else:
+                self._draw_horse_group(x, y, light, int(entity["variant"]))
+
+    def _draw_ger(self, x: int, y: int, light: float) -> None:
+        felt = self._lerp_color("#6b768c", "#efe1c7", light)
+        shadow = self._lerp_color("#4f5668", "#d4b98e", light)
+        roof = self._lerp_color("#8a90a3", "#b75c3b", light)
+        door = self._lerp_color("#495268", "#82563b", light)
+        self._block(x, y + 10, 7, 4, felt, "background")
+        self._block(x + 1, y + 8, 5, 2, shadow, "background")
+        self._block(x + 2, y + 6, 3, 2, roof, "background")
+        self._block(x + 3, y + 11, 1, 3, door, "background")
+
+    def _draw_sheep_group(self, x: int, y: int, light: float, variant: int) -> None:
+        fleece = self._lerp_color("#8b95a8", "#f1eee7", light)
+        head = self._lerp_color("#4b4b56", "#54453f", light)
+        for offset in (0, 16 + variant * 2, 32 + variant * 3):
+            self._block(x + offset, y + 8, 3, 2, fleece, "background")
+            self._block(x + offset + 2, y + 7, 1, 1, fleece, "background")
+            self._block(x + offset + 3, y + 9, 1, 1, head, "background")
+            self._block(x + offset + 1, y + 10, 1, 2, head, "background")
+            self._block(x + offset + 3, y + 10, 1, 2, head, "background")
+
+    def _draw_cattle_group(self, x: int, y: int, light: float, variant: int) -> None:
+        body = self._lerp_color("#515766", "#8c5c42", light)
+        horn = self._lerp_color("#b4c0d0", "#d8c39b", light)
+        for offset in (0, 22 + variant * 2):
+            self._block(x + offset, y + 7, 5, 3, body, "background")
+            self._block(x + offset + 5, y + 8, 2, 2, body, "background")
+            self._block(x + offset + 6, y + 7, 1, 1, horn, "background")
+            self._block(x + offset + 6, y + 10, 1, 2, body, "background")
+            self._block(x + offset + 1, y + 10, 1, 2, body, "background")
+            self._block(x + offset + 4, y + 10, 1, 2, body, "background")
+
+    def _draw_horse_group(self, x: int, y: int, light: float, variant: int) -> None:
+        coat = self._lerp_color("#646f84", "#c9a27b", light)
+        mane = self._lerp_color("#323746", "#6e4630", light)
+        for offset in (0, 20 + variant * 3):
+            self._block(x + offset, y + 8, 5, 2, coat, "background")
+            self._block(x + offset + 4, y + 7, 2, 2, coat, "background")
+            self._block(x + offset + 3, y + 6, 1, 2, mane, "background")
+            self._block(x + offset + 1, y + 10, 1, 3, mane, "background")
+            self._block(x + offset + 4, y + 10, 1, 3, mane, "background")
+
+    def _lerp_color(self, start: str, end: str, ratio: float) -> str:
+        ratio = max(0.0, min(1.0, ratio))
+        start_rgb = self._hex_to_rgb(start)
+        end_rgb = self._hex_to_rgb(end)
+        blended = tuple(
+            int(round(start_value + (end_value - start_value) * ratio))
+            for start_value, end_value in zip(start_rgb, end_rgb)
+        )
+        return self._rgb_to_hex(blended)
+
+    def _hex_to_rgb(self, value: str) -> tuple[int, int, int]:
+        value = value.lstrip("#")
+        return int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16)
+
+    def _rgb_to_hex(self, value: tuple[int, int, int]) -> str:
+        return "#{:02x}{:02x}{:02x}".format(*value)
+
     def _block(self, x: int, y: int, width: int, height: int, color: str, tag: str) -> None:
         for iy in range(height):
             for ix in range(width):
@@ -265,6 +452,7 @@ class SubtitleTranslatorGUI:
         self.srt_batch_var = tk.StringVar(value="20")
         self.video_input_var = tk.StringVar()
         self.video_srt_output_var = tk.StringVar()
+        self.video_profile_var = tk.StringVar(value="Balanced")
         self.whisper_model_var = tk.StringVar(value="small")
         self.video_language_var = tk.StringVar(value="auto")
         self.video_device_var = tk.StringVar(value="cpu")
@@ -502,19 +690,27 @@ class SubtitleTranslatorGUI:
 
         self._add_combo_row(
             transcribe_frame,
+            "Recognition Profile",
+            self.video_profile_var,
+            ["Balanced", "High Quality", "Noisy Scene"],
+            row=3,
+            width=18,
+        )
+        self._add_combo_row(
+            transcribe_frame,
             "Whisper Model",
             self.whisper_model_var,
             ["tiny", "base", "small", "medium", "large-v3"],
-            row=3,
+            row=4,
             width=16,
         )
-        self._add_labeled_entry(transcribe_frame, "Speech Language", self.video_language_var, row=3, column=2, width=16)
+        self._add_labeled_entry(transcribe_frame, "Speech Language", self.video_language_var, row=4, column=2, width=16)
         self._add_combo_row(
             transcribe_frame,
             "Device",
             self.video_device_var,
             ["auto", "cpu", "cuda"],
-            row=4,
+            row=5,
             width=12,
         )
         self._add_combo_row(
@@ -522,7 +718,7 @@ class SubtitleTranslatorGUI:
             "Compute Type",
             self.video_compute_type_var,
             ["int8", "int8_float16", "float16", "float32"],
-            row=4,
+            row=5,
             column=2,
             width=16,
         )
@@ -532,14 +728,14 @@ class SubtitleTranslatorGUI:
             text="Translate generated SRT right after transcription",
             variable=self.video_translate_after_var,
             style="App.TCheckbutton",
-        ).grid(row=5, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        ).grid(row=6, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
         ttk.Button(
             transcribe_frame,
             text="Generate Subtitle From Video",
             style="Accent.TButton",
             command=self._start_video_transcription,
-        ).grid(row=6, column=0, sticky="w", pady=(14, 0))
+        ).grid(row=7, column=0, sticky="w", pady=(14, 0))
 
         frame = ttk.LabelFrame(parent, text="Translate Existing SRT", padding=12, style="Card.TLabelframe")
         frame.pack(fill="x", anchor="n", pady=(16, 0))
@@ -565,7 +761,7 @@ class SubtitleTranslatorGUI:
 
         hint = tk.Label(
             parent,
-            text="Workflow: transcribe video to SRT first, then optionally send that SRT to your model API for translation.",
+            text="Recognition Profile: Balanced for normal use, High Quality for cleaner audio, Noisy Scene for crowded or messy audio.",
             bg="#f3efe7",
             fg="#6c6059",
             font=("Segoe UI", 10),
@@ -843,6 +1039,15 @@ class SubtitleTranslatorGUI:
         if not output_path:
             raise ValueError("Choose an output SRT path first.")
 
+        self._log_from_thread(
+            "Recognition settings: "
+            f"profile={request['profile']}, "
+            f"model={request['model_size']}, "
+            f"beam={request['beam_size']}, "
+            f"vad={'on' if request['vad_filter'] else 'off'}, "
+            f"audio_cleanup={'on' if request['preprocess_audio'] else 'off'}"
+        )
+
         result = transcribe_media_to_srt(
             input_path,
             output_path,
@@ -850,6 +1055,9 @@ class SubtitleTranslatorGUI:
             language=request["language"],
             device=request["device"],
             compute_type=request["compute_type"],
+            beam_size=request["beam_size"],
+            vad_filter=request["vad_filter"],
+            preprocess_audio=request["preprocess_audio"],
             status_callback=self._progress_from_worker,
         )
 
@@ -960,14 +1168,23 @@ class SubtitleTranslatorGUI:
         }
 
     def _get_transcription_request(self) -> Dict[str, Any]:
+        profile_label = self.video_profile_var.get().strip().lower().replace(" ", "_")
+        settings = resolve_transcription_settings(
+            model_size=self.whisper_model_var.get().strip() or "small",
+            profile=profile_label,
+        )
         return {
             "config": self._build_config_from_form(),
             "input_path": self.video_input_var.get().strip(),
             "output_path": self.video_srt_output_var.get().strip(),
-            "model_size": self.whisper_model_var.get().strip() or "small",
+            "profile": settings.profile,
+            "model_size": settings.model_size,
             "language": self.video_language_var.get().strip() or "auto",
             "device": self.video_device_var.get().strip() or "auto",
             "compute_type": self.video_compute_type_var.get().strip() or "int8",
+            "beam_size": settings.beam_size,
+            "vad_filter": settings.vad_filter,
+            "preprocess_audio": settings.preprocess_audio,
             "translate_after": self.video_translate_after_var.get(),
             "target_language": self.srt_target_var.get().strip() or "Simplified Chinese",
             "bilingual": self.srt_bilingual_var.get(),

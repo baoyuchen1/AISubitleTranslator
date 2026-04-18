@@ -32,5 +32,6 @@ Expected output:
 
 - The EXE still needs network access to call your model API.
 - Video-to-SRT transcription runs locally with `faster-whisper`, so first launch may download the selected Whisper model unless it is already cached.
+- The `Noisy Scene` recognition profile uses local audio preprocessing through `PyAV` before Whisper runs.
 - Your `.env` file stays next to the EXE or project root, depending on how you run it.
-- If `rapidocr-onnxruntime` or `faster-whisper` pulls in extra runtime files on your machine, the spec file is the place to extend hidden imports, binaries, or data collection.
+- If `rapidocr-onnxruntime`, `PyAV`, or `faster-whisper` pulls in extra runtime files on your machine, the spec file is the place to extend hidden imports, binaries, or data collection.
